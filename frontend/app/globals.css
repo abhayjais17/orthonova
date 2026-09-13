@@ -121,4 +121,26 @@
   .screening-notice { padding-inline: 1.25rem; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
-@media print { header, footer, .no-print { display: none !important; } body { background: var(--card); } .screen-card { box-shadow: none; } }
+@media print {
+  header, footer, .no-print { display: none !important; }
+  body { background: var(--card); }
+  .screen-card { box-shadow: none; }
+
+  /* Print-specific layout improvements */
+  .page-width { margin: 0; padding: 0; }
+  .mx-auto { margin-left: auto; margin-right: auto; }
+  .screen-card {
+    page-break-inside: avoid;
+    margin: 0;
+  }
+  .screen-card > * {
+    page-break-inside: avoid;
+  }
+  /* Prevent orphaned text */
+  p { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+
+  /* Optimize margins for printing */
+  body { margin: 0; padding: 0.5in; }
+  .enter-page { padding: 0; margin: 0; }
+}

@@ -95,7 +95,7 @@ export function ScreeningResult({ samplePatient }: { samplePatient?: PatientDeta
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       revalidateIfStale: false,
-      dedupingInterval: 60000, // Long dedup interval to prevent accidental refetches
+      dedupingInterval: 60000,
     },
   )
   const screeningResult = samplePatient ? {
@@ -107,6 +107,10 @@ export function ScreeningResult({ samplePatient }: { samplePatient?: PatientDeta
     disclaimer: '',
   } : fetchedResult
 
+  // Check if we're showing real computed result vs a sample preview
+  const hasRealResult = !samplePatient && screeningResult?.risk_level != null && screeningResult?.explanation
+  const isPreviewingSample = previewRisk != null || (!hasRealResult && !samplePatient)
+
   const resultRisk = (screeningResult?.risk_level || '').toLowerCase()
   const effectiveRiskKey = resultRisk === 'low' || resultRisk === 'high' ? resultRisk : 'moderate'
   const risk = previewRisk ?? effectiveRiskKey as keyof typeof examples
@@ -115,7 +119,7 @@ export function ScreeningResult({ samplePatient }: { samplePatient?: PatientDeta
   if (!samplePatient && !testComplete) return <SessionNeeded test />
   if (!samplePatient && (isLoading || error)) return (
     <div className="page-width flex flex-col items-center gap-5 py-12">
-      <p role="status">{error ? 'Unable to load the sample result.' : 'Preparing your sample summary…'}</p>
+      <p role="status">{error ? 'Unable to load the result.' : 'Preparing your summary…'}</p>
       {error && <Button size="lg" onClick={() => mutate()}>Try again</Button>}
       <BackLink href="/dashboard">Back to patient list</BackLink>
     </div>
@@ -165,7 +169,9 @@ export function ScreeningResult({ samplePatient }: { samplePatient?: PatientDeta
               <h2 className="font-heading text-3xl font-bold leading-tight text-balance">{result.heading}</h2>
             </CardTitle>
             <CardDescription>
-              {samplePatient ? 'Patient screening result' : 'Illustrative sample only. No risk has been calculated from your answers or your walk.'}
+              {isPreviewingSample
+                ? 'Illustrative sample only. No risk has been calculated from your answers or your walk.'
+                : 'Your personalized screening result based on your answers and sensor data.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -195,11 +201,14 @@ export function ScreeningResult({ samplePatient }: { samplePatient?: PatientDeta
                 <p className="pt-2 text-lg leading-relaxed">{result.advice}</p>
               </div>
               <ScreeningNotice result />
+              <p className="text-sm text-muted-foreground border-t pt-4">
+                For sudden severe pain, a hot swollen knee, or inability to bear weight, seek prompt medical care.
+              </p>
             </div>
           </CardContent>
           <CardFooter className="no-print flex-col gap-4">
             <Button size="lg" variant="outline" className="w-full" onClick={() => window.print()}>
-              <Download data-icon="inline-start" />Save or print {samplePatient ? 'result' : 'sample result'}
+              <Download data-icon="inline-start" />Save or print {isPreviewingSample ? 'sample result' : 'result'}
             </Button>
             <Button
               variant="ghost"
@@ -214,9 +223,6 @@ export function ScreeningResult({ samplePatient }: { samplePatient?: PatientDeta
             </Button>
           </CardFooter>
         </Card>
-        <p className="text-center text-sm text-muted-foreground">
-          For sudden severe pain, a hot swollen knee, or inability to bear weight, seek prompt medical care.
-        </p>
       </div>
     </div>
   )
