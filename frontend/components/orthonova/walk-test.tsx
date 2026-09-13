@@ -64,10 +64,9 @@ export function WalkTest() {
 
   // Transition to knee test when complete
   useEffect(() => {
-    console.log('[WalkTest] Navigation useEffect:', { progress, running, testCompletedRef: testCompletedRef.current })
+    console.log('[WalkTest] Navigation useEffect:', { progress, running, testCompleted: testCompletedRef.current })
     if (progress < 100 || !running) return
-    // Wait for testCompletedRef to be set by runDetection() before navigating
-    // This ensures data submission completes first
+    // Check ref directly inside effect (refs don't trigger re-renders, so we can't depend on them)
     if (!testCompletedRef.current) return
 
     console.log('[WalkTest] Test completed, navigating to knee-test in 900ms')
@@ -79,7 +78,7 @@ export function WalkTest() {
       }
     }, 900)
     return () => clearTimeout(timer)
-  }, [progress, running, testCompletedRef.current, setTestComplete, sessionId, router])
+  }, [progress, running, setTestComplete, sessionId, router])
 
   // Start pose detection when camera is ready
   useEffect(() => {
@@ -163,7 +162,17 @@ export function WalkTest() {
           return
         }
         console.error('[WalkTest] Detection error:', err)
-        setError('Vision capture failed. Continuing with simulated data.')
+
+        // Check for cold-start timeout error
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        const isColdStartTimeout = errorMsg.includes('timeout') || errorMsg.includes('cold-start')
+
+        if (isColdStartTimeout) {
+          setError('Backend is starting up (first request after inactivity). This may take up to 60 seconds...')
+        } else {
+          setError('Vision capture failed. Continuing with simulated data.')
+        }
+
         try {
           console.log('[WalkTest] Attempting fallback execution...')
           await executeWalkTest()
@@ -171,11 +180,17 @@ export function WalkTest() {
           setProgress(100)
         } catch (fallbackErr) {
           console.error('[WalkTest] Fallback execution failed:', fallbackErr)
-          const fallbackMsg =
+          const fallbackErrorMsg =
             fallbackErr instanceof Error
               ? fallbackErr.message
               : 'Walk test data collection failed. Please try again.'
-          setError(fallbackMsg)
+          // Check if this is also a cold-start issue
+          const isFallbackColdStart = fallbackErrorMsg.includes('timeout') || fallbackErrorMsg.includes('cold-start')
+          if (isFallbackColdStart) {
+            setError('Backend is starting up. Please wait up to 60 seconds and refresh the page.')
+          } else {
+            setError(fallbackErrorMsg)
+          }
         }
       }
     }
