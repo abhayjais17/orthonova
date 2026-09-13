@@ -69,6 +69,11 @@ class GateDecision(BaseModel):
     recommendation: Optional[str] = None
 
 
+class ActiveSessionResponse(BaseModel):
+    session_id: Optional[int] = None
+    patient_id: Optional[int] = None
+
+
 @router.post("/", response_model=CreateSessionResponse)
 async def create_session(
     user: User = Depends(get_current_user),
@@ -201,3 +206,32 @@ def evaluate_gate(age: int, pain_severity: int, morning_stiffness: int, injury: 
 
     # All checks passed
     return True, "Patient meets criteria for knee OA screening walk test"
+
+
+@router.get("/active", response_model=ActiveSessionResponse)
+async def get_active_session(db: Session = Depends(get_db)):
+    """
+    Get the most recently created session that is currently active (mid-flow).
+
+    An active session is one where:
+    - Intake has been submitted (gate_passed is not None)
+    - Result has not yet been fetched (risk_level is None)
+
+    This endpoint is used by ESP32 sensor nodes to discover the current patient_id
+    for data submission. Returns null values if no active session exists.
+
+    No authentication required (needed for hardware without stored credentials).
+    """
+    # Find the most recent patient that has passed intake but hasn't completed the result
+    active_patient = db.query(Patient).filter(
+        Patient.gate_passed.isnot(None),  # Intake submitted
+        Patient.risk_level.is_(None)      # Result not yet generated
+    ).order_by(Patient.patient_id.desc()).first()
+
+    if not active_patient:
+        return ActiveSessionResponse(session_id=None, patient_id=None)
+
+    return ActiveSessionResponse(
+        session_id=active_patient.patient_id,
+        patient_id=active_patient.patient_id
+    )

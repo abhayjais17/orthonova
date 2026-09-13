@@ -106,50 +106,48 @@ async def ingest_shoe_data(
     """
     Ingest shoe sensor (FSR) data.
 
-    When called with no data (simulated mode), generates realistic simulated data.
-    When called with data (real mode), stores the real ESP32 readings.
-
-    Accepts two formats:
-    1. Old format: { readings: [{ timestamp, left_heel, left_toe, right_heel, right_toe }] }
-    2. New format: { readings: [{ timestamp, fsr_heel, fsr_midfoot, fsr_forefoot, fsr_toe }] }
+    Accepts both single readings and batch arrays:
+    - Single reading: { timestamp, fsr_heel, fsr_midfoot, fsr_forefoot, fsr_toe }
+    - Batch array: { readings: [{ timestamp, fsr_heel, fsr_midfoot, fsr_forefoot, fsr_toe }, ...] }
 
     Returns number of readings stored.
     """
     import json
     patient = validate_patient(session_id, db)
 
-    # Check if this is the new format (with fsr_* fields)
+    # Normalize data to always be a list of readings
+    readings = []
     if data:
-        readings = data.get("readings", [])
-        first_reading = readings[0] if readings else {}
-        if "fsr_heel" in first_reading:
-            # New format from frontend
-            for reading in readings:
-                record = ShoeSensorData(
-                    patient_id=int(session_id),
-                    fsr_heel=reading.get("fsr_heel", 0.0) or 0.0,
-                    fsr_midfoot=reading.get("fsr_midfoot", 0.0) or 0.0,
-                    fsr_forefoot=reading.get("fsr_forefoot", 0.0) or 0.0,
-                    fsr_toe=reading.get("fsr_toe", 0.0) or 0.0,
-                    timestamp=datetime.fromtimestamp(reading["timestamp"]) if "timestamp" in reading else datetime.utcnow(),
-                )
-                db.add(record)
-            db.commit()
-            return {"stored_readings": len(readings), "mode": "real"}
+        # Check if this is a batch format (has "readings" key)
+        if "readings" in data:
+            readings = data.get("readings", [])
+        # Check if this is a single reading (has fsr_heel or fsr_midfoot directly)
+        elif "fsr_heel" in data or "fsr_midfoot" in data or "fsr_forefoot" in data or "fsr_toe" in data:
+            readings = [data]
+        # Otherwise try to treat the whole data as a single reading
+        else:
+            readings = [data] if data else []
 
-    # Old format or simulated mode
-    if data is None:
-        # Simulated mode - generate data based on profile
-        profile = "oa" if patient.age and patient.age > 60 and patient.pain_severity and patient.pain_severity > 5 else "normal"
-        generator = DataGenerator(profile=profile, duration_seconds=10.0, sample_rate_hz=50.0)
-        shoe_data = generator.generate_shoe_data()
-    else:
-        # Old format - data is already parsed dict
-        readings_list = data.get("readings", [])
-        shoe_data = [{"timestamp": r.get("timestamp"), "left_heel": r.get("left_heel"), "left_toe": r.get("left_toe"),
-                      "right_heel": r.get("right_heel"), "right_toe": r.get("right_toe")} for r in readings_list]
+    # Store readings in database
+    if readings:
+        for reading in readings:
+            record = ShoeSensorData(
+                patient_id=int(session_id),
+                fsr_heel=reading.get("fsr_heel", 0.0) or 0.0,
+                fsr_midfoot=reading.get("fsr_midfoot", 0.0) or 0.0,
+                fsr_forefoot=reading.get("fsr_forefoot", 0.0) or 0.0,
+                fsr_toe=reading.get("fsr_toe", 0.0) or 0.0,
+                timestamp=datetime.fromtimestamp(reading["timestamp"]) if "timestamp" in reading else datetime.utcnow(),
+            )
+            db.add(record)
+        db.commit()
+        return {"stored_readings": len(readings), "mode": "real"}
 
-    # Store in database
+    # Simulated mode (no data provided)
+    profile = "oa" if patient.age and patient.age > 60 and patient.pain_severity and patient.pain_severity > 5 else "normal"
+    generator = DataGenerator(profile=profile, duration_seconds=10.0, sample_rate_hz=50.0)
+    shoe_data = generator.generate_shoe_data()
+
     for reading in shoe_data:
         record = ShoeSensorData(
             patient_id=int(session_id),
@@ -163,7 +161,7 @@ async def ingest_shoe_data(
 
     db.commit()
 
-    return {"stored_readings": len(shoe_data), "mode": "simulated" if data is None else "real"}
+    return {"stored_readings": len(shoe_data), "mode": "simulated"}
 
 
 @router.post("/knee")
@@ -175,46 +173,46 @@ async def ingest_knee_data(
     """
     Ingest knee IMU data (accelerometer + gyroscope).
 
-    Simulated mode generates realistic motion data.
-    Real mode stores actual ESP32 IMU readings.
+    Accepts both single readings and batch arrays:
+    - Single reading: { timestamp, knee_flexion, thigh_angle, shin_angle }
+    - Batch array: { readings: [{ timestamp, knee_flexion, thigh_angle, shin_angle }, ...] }
 
-    Accepts two formats:
-    1. Old format: { readings: [{ timestamp, thigh_accel, thigh_gyro, shin_accel, shin_gyro }] }
-    2. New format: { readings: [{ timestamp, knee_flexion, thigh_angle, shin_angle }] }
+    Returns number of readings stored.
     """
     patient = validate_patient(session_id, db)
 
-    # Check if this is the new format (with knee_flexion field)
+    # Normalize data to always be a list of readings
+    readings = []
     if data:
-        readings = data.get("readings", [])
-        first_reading = readings[0] if readings else {}
-        if "knee_flexion" in first_reading:
-            # New format from frontend
-            for reading in readings:
-                record = KneeSensorData(
-                    patient_id=int(session_id),
-                    knee_flexion=reading.get("knee_flexion", 0.0) or 0.0,
-                    thigh_angle=reading.get("thigh_angle", 0.0) or 0.0,
-                    shin_angle=reading.get("shin_angle", 0.0) or 0.0,
-                    timestamp=datetime.fromtimestamp(reading["timestamp"]) if "timestamp" in reading else datetime.utcnow(),
-                )
-                db.add(record)
-            db.commit()
-            return {"stored_readings": len(readings), "mode": "real"}
+        # Check if this is a batch format (has "readings" key)
+        if "readings" in data:
+            readings = data.get("readings", [])
+        # Check if this is a single reading (has knee_flexion, thigh_angle, or shin_angle directly)
+        elif "knee_flexion" in data or "thigh_angle" in data or "shin_angle" in data:
+            readings = [data]
+        # Otherwise try to treat the whole data as a single reading
+        else:
+            readings = [data] if data else []
 
-    # Old format or simulated mode
-    if data is None:
-        # Simulated mode
-        profile = "oa" if patient.age and patient.age > 60 and patient.pain_severity and patient.pain_severity > 5 else "normal"
-        generator = DataGenerator(profile=profile, duration_seconds=10.0, sample_rate_hz=50.0)
-        knee_data = generator.generate_knee_data()
-    else:
-        # Old format - data is already parsed dict
-        readings_list = data.get("readings", [])
-        knee_data = [{"timestamp": r.get("timestamp"), "thigh_accel": r.get("thigh_accel"), "thigh_gyro": r.get("thigh_gyro"),
-                      "shin_accel": r.get("shin_accel"), "shin_gyro": r.get("shin_gyro")} for r in readings_list]
+    # Store readings in database
+    if readings:
+        for reading in readings:
+            record = KneeSensorData(
+                patient_id=int(session_id),
+                knee_flexion=reading.get("knee_flexion", 0.0) or 0.0,
+                thigh_angle=reading.get("thigh_angle", 0.0) or 0.0,
+                shin_angle=reading.get("shin_angle", 0.0) or 0.0,
+                timestamp=datetime.fromtimestamp(reading["timestamp"]) if "timestamp" in reading else datetime.utcnow(),
+            )
+            db.add(record)
+        db.commit()
+        return {"stored_readings": len(readings), "mode": "real"}
 
-    # Store in database - map to new schema
+    # Simulated mode (no data provided)
+    profile = "oa" if patient.age and patient.age > 60 and patient.pain_severity and patient.pain_severity > 5 else "normal"
+    generator = DataGenerator(profile=profile, duration_seconds=10.0, sample_rate_hz=50.0)
+    knee_data = generator.generate_knee_data()
+
     for reading in knee_data:
         # Calculate knee_flexion from thigh and shin angles (simplified)
         knee_flexion = abs(reading["thigh_accel"][1] - reading["shin_accel"][1]) * 30 if "thigh_accel" in reading else 0.0
@@ -230,7 +228,7 @@ async def ingest_knee_data(
 
     db.commit()
 
-    return {"stored_readings": len(knee_data), "mode": "simulated" if data is None else "real"}
+    return {"stored_readings": len(knee_data), "mode": "simulated"}
 
 
 @router.post("/vision")
