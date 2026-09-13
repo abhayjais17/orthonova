@@ -10,7 +10,11 @@ from app.config import get_settings
 settings = get_settings()
 
 # Build absolute path to CA certificate for MySQL SSL connections
-_cert_path = os.path.join(os.path.dirname(__file__), '..', '..', 'certs', 'ca.pem')
+# Check for CA_CERT_PATH environment variable first (for Render), fall back to local path
+_ca_cert_path = os.getenv('CA_CERT_PATH')
+if not _ca_cert_path:
+    _ca_cert_path = os.path.join(os.path.dirname(__file__), '..', '..', 'certs', 'ca.pem')
+_cert_path = _ca_cert_path
 
 # Determine if we're using MySQL (requires SSL for Aiven) vs SQLite
 _is_mysql = settings.database_url.startswith('mysql')
