@@ -158,9 +158,33 @@ export function clearAuthToken(): void {
 // API Helper
 // =============================================================================
 
+// Timeout for API requests - longer for cold-start detection (Render free tier can take 30-50s)
+const FETCH_TIMEOUT_MS = 120000 // 2 minutes for cold-start scenarios
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+      reject(new Error(`Request timeout after ${timeoutMs}ms - backend may be cold-starting`))
+    }, timeoutMs)
+
+    fetch(url, { ...options, signal: controller.signal })
+      .then((response) => {
+        clearTimeout(timeoutId)
+        resolve(response)
+      })
+      .catch((err) => {
+        clearTimeout(timeoutId)
+        reject(err)
+      })
+  })
+}
+
 async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`
   const token = getAuthToken()
+  const startTime = performance.now()
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -172,36 +196,47 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(url, {
-    headers,
-    ...options,
-  })
+  console.log(`[API] ${options.method || 'GET'} ${endpoint}`)
 
-  // Handle auth errors - redirect to login
-  if (response.status === 401) {
-    clearAuthToken()
-    // Redirect to login with a message
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('auth_error', 'Your session expired. Please log in again.')
-      window.location.href = '/login'
-    }
-    throw new Error('Session expired')
-  }
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers,
+      ...options,
+    }, FETCH_TIMEOUT_MS)
 
-  if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}: ${response.statusText}`
-    try {
-      const errorBody = await response.json()
-      if (errorBody.detail) {
-        errorMessage = errorBody.detail
+    const duration = performance.now() - startTime
+    console.log(`[API] ${options.method || 'GET'} ${endpoint} - ${response.status} (${duration.toFixed(0)}ms)`)
+
+    // Handle auth errors - redirect to login
+    if (response.status === 401) {
+      clearAuthToken()
+      // Redirect to login with a message
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('auth_error', 'Your session expired. Please log in again.')
+        window.location.href = '/login'
       }
-    } catch {
-      // Ignore JSON parse error on non-JSON response
+      throw new Error('Session expired')
     }
-    throw new Error(errorMessage)
-  }
 
-  return response.json()
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+      try {
+        const errorBody = await response.json()
+        if (errorBody.detail) {
+          errorMessage = errorBody.detail
+        }
+      } catch {
+        // Ignore JSON parse error on non-JSON response
+      }
+      throw new Error(errorMessage)
+    }
+
+    return response.json()
+  } catch (err) {
+    const duration = performance.now() - startTime
+    console.error(`[API] ${options.method || 'GET'} ${endpoint} - Error after ${duration.toFixed(0)}ms:`, err)
+    throw err
+  }
 }
 
 // =============================================================================
